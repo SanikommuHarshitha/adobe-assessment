@@ -1,6 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Search Keyword Performance Processor - Lambda + S3
+Description: Search Keyword Performance Processor - Lambda reads from S3 and writes output back to S3
+
+# NOTE: The S3 bucket is managed independently of this stack. The Lambda function
+# is granted access to it via IAM policy. This separation ensures the bucket and
+# its data are not affected by Lambda stack updates or teardowns.
+#
+# Actual parameter values are stored in samconfig.toml locally and are NOT committed
+# to version control.
 
 Globals:
   Function:
@@ -9,24 +16,19 @@ Globals:
     Runtime: python3.12
 
 Parameters:
-  InputBucketName:
+  BucketName:
     Type: String
-    Default: search-keyword-performance-input
-  OutputBucketName:
+    Description: Pre-existing S3 bucket for input and output files
+
+  InputKey:
     Type: String
-    Default: search-keyword-performance-output
+    Description: S3 key of the input file to process
+
+  OutputPrefix:
+    Type: String
+    Description: S3 prefix where output files are written
 
 Resources:
-
-  InputBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref InputBucketName
-
-  OutputBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Ref OutputBucketName
 
   ProcessorFunction:
     Type: AWS::Serverless::Function
@@ -34,34 +36,25 @@ Resources:
       FunctionName: SearchKeywordProcessor
       CodeUri: src/
       Handler: lambda_handler.lambda_handler
-      Description: Processes hit-level data and computes search keyword revenue
+      Description: >
+        Reads hit-level data from S3, computes search keyword revenue,
+        and writes results back to S3.
       Environment:
         Variables:
-          OUTPUT_BUCKET: !Ref OutputBucketName
+          BUCKET_NAME: !Ref BucketName
+          INPUT_KEY: !Ref InputKey
+          OUTPUT_PREFIX: !Ref OutputPrefix
       Policies:
-        - S3ReadPolicy:
-            BucketName: !Ref InputBucketName
-        - S3WritePolicy:
-            BucketName: !Ref OutputBucketName
-      Events:
-        S3Upload:
-          Type: S3
-          Properties:
-            Bucket: !Ref InputBucket
-            Events: s3:ObjectCreated:*
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: suffix
-                    Value: ".sql"
+        - S3CrudPolicy:
+            BucketName: !Ref BucketName
 
 Outputs:
   ProcessorFunctionArn:
     Description: Lambda Function ARN
     Value: !GetAtt ProcessorFunction.Arn
-  InputBucketName:
-    Description: S3 Input Bucket
-    Value: !Ref InputBucket
-  OutputBucketName:
-    Description: S3 Output Bucket
-    Value: !Ref OutputBucket
+  InputLocation:
+    Description: Input file location
+    Value: !Sub "s3://${BucketName}/${InputKey}"
+  OutputLocation:
+    Description: Output files will appear here
+    Value: !Sub "s3://${BucketName}/${OutputPrefix}/"
