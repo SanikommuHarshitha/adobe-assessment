@@ -1,0 +1,67 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Search Keyword Performance Processor - Lambda + S3
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 256
+    Runtime: python3.12
+
+Parameters:
+  InputBucketName:
+    Type: String
+    Default: search-keyword-performance-input
+  OutputBucketName:
+    Type: String
+    Default: search-keyword-performance-output
+
+Resources:
+
+  InputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref InputBucketName
+
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref OutputBucketName
+
+  ProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: SearchKeywordProcessor
+      CodeUri: src/
+      Handler: lambda_handler.lambda_handler
+      Description: Processes hit-level data and computes search keyword revenue
+      Environment:
+        Variables:
+          OUTPUT_BUCKET: !Ref OutputBucketName
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref InputBucketName
+        - S3WritePolicy:
+            BucketName: !Ref OutputBucketName
+      Events:
+        S3Upload:
+          Type: S3
+          Properties:
+            Bucket: !Ref InputBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: suffix
+                    Value: ".sql"
+
+Outputs:
+  ProcessorFunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt ProcessorFunction.Arn
+  InputBucketName:
+    Description: S3 Input Bucket
+    Value: !Ref InputBucket
+  OutputBucketName:
+    Description: S3 Output Bucket
+    Value: !Ref OutputBucket
