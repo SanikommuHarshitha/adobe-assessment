@@ -32,25 +32,6 @@ class SearchKeywordProcessor:
     attributed to external search engine keywords.
     """
 
-    def is_search_engine_referrer(self, referrer: str) -> bool:
-        """
-        Check if the referrer is an external search engine.
-        A referrer is considered a search engine if:
-        1. It is external (not from our own domain)
-        2. It contains a recognizable search query parameter
-        """
-        if not referrer:
-            return False
-        try:
-            parsed = urlparse(referrer)
-            netloc = parsed.netloc.lower()
-            if OWNED_DOMAIN in netloc:
-                return False
-            query_params = parse_qs(parsed.query)
-            return any(param in query_params for param in SEARCH_QUERY_PARAMS)
-        except Exception:
-            return False
-
     def extract_search_info(self, referrer: str):
         """
         Dynamically extract the search engine domain and keyword from a referrer URL.
