@@ -5,10 +5,13 @@ Analyzes hit-level data to determine revenue generated from external search engi
 
 import csv
 import io
+import logging
 from collections import defaultdict
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 
+
+logger = logging.getLogger(__name__)
 
 # The site being analyzed - referrers from this domain are internal (not search engines)
 OWNED_DOMAIN = "esshopzilla.com"
@@ -18,6 +21,9 @@ SEARCH_QUERY_PARAMS = ["q", "p", "query", "search", "qs", "text", "keyword"]
 
 # Per Appendix A: event 1 = Purchase. Revenue is only actualized when this event is present.
 PURCHASE_EVENT = "1"
+
+# Required columns for processing
+REQUIRED_COLUMNS = {"hit_time_gmt", "date_time", "user_agent", "ip", "event_list", "product_list", "referrer"}
 
 
 class SearchKeywordProcessor:
@@ -101,6 +107,18 @@ class SearchKeywordProcessor:
                     pass
         return total
 
+    def validate_columns(self, fieldnames: list) -> bool:
+        """
+        Validate that all required columns are present in the file.
+        Logs a warning for any missing columns.
+        Returns True if all required columns are present, False otherwise.
+        """
+        missing = REQUIRED_COLUMNS - set(fieldnames or [])
+        if missing:
+            logger.warning(f"Missing required columns: {missing}")
+            return False
+        return True
+
     def process_file(self, file_content: str) -> dict:
         """
         Process the tab-separated hit-level data file content.
@@ -110,21 +128,37 @@ class SearchKeywordProcessor:
         actualized when the purchase event (event 1) is present. When a purchase
         occurs, attribute revenue to that session's search referrer.
 
-        Returns a dict of (domain, keyword) -> total revenue across all dates.
+        Returns a dict of (domain, keyword) -> total revenue.
         """
         revenue_by_keyword = defaultdict(float)
-
-        # session_key -> (domain, keyword) of most recent search engine referrer
         session_search = {}
+
+        # Counters for data quality summary
+        total_rows = 0
+        skipped_rows = 0
+        purchase_rows = 0
+        attributed_rows = 0
 
         reader = csv.DictReader(io.StringIO(file_content), delimiter="\t")
 
+        # Validate required columns before processing
+        if not self.validate_columns(reader.fieldnames):
+            raise ValueError("Input file is missing required columns. Processing aborted.")
+
         for row in reader:
+            total_rows += 1
+
             referrer     = row.get("referrer", "").strip()
             event_list   = row.get("event_list", "").strip()
             product_list = row.get("product_list", "").strip()
             ip           = row.get("ip", "").strip()
             user_agent   = row.get("user_agent", "").strip()
+
+            # Skip rows missing session identity fields
+            if not ip or not user_agent:
+                logger.warning(f"Row {total_rows}: missing ip or user_agent — skipping")
+                skipped_rows += 1
+                continue
 
             session_key = (ip, user_agent)
 
@@ -135,11 +169,21 @@ class SearchKeywordProcessor:
 
             # Per Appendix B: revenue is only actualized when the purchase event is set
             if self.is_purchase(event_list):
+                purchase_rows += 1
                 revenue = self.extract_revenue(product_list)
                 if revenue > 0:
                     search_info = session_search.get(session_key)
                     if search_info:
                         revenue_by_keyword[search_info] += revenue
+                        attributed_rows += 1
+                    else:
+                        logger.warning(f"Row {total_rows}: purchase found but no search referrer in session — skipping")
+
+        # Log data quality summary
+        logger.info(f"Data quality summary — Total rows: {total_rows} | "
+                    f"Skipped: {skipped_rows} | "
+                    f"Purchase rows: {purchase_rows} | "
+                    f"Attributed to search: {attributed_rows}")
 
         return dict(revenue_by_keyword)
 

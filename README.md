@@ -16,7 +16,7 @@ google.com              ipod              480.00
 bing.com                zune              250.00
 ```
 
-Sorted by revenue descending.
+Sorted by revenue descending. The date in the filename reflects the latest date found in the data.
 
 ---
 
@@ -24,69 +24,88 @@ Sorted by revenue descending.
 
 ```
 adobe-assessment/
-├── src/
-│   ├── processor.py        # Core logic (SearchKeywordProcessor class)
-│   └── lambda_handler.py   # AWS Lambda entry point
-├── main.py                 # CLI runner for local use
-├── template.yaml           # AWS SAM deployment template
-├── samconfig.toml          # Local deployment config (gitignored - see setup below)
+├── processor.py        # Core logic (SearchKeywordProcessor class)
+├── lambda_handler.py   # AWS Lambda entry point
+├── glue_job.py         # AWS Glue job for processing files > 10 GB
+├── main.py             # CLI runner for local use
+├── template.yaml       # AWS SAM deployment template
+├── samconfig.toml      # Local deployment config (gitignored - see setup below)
+├── requirements.txt
 ├── .gitignore
 └── README.md
 ```
 
 ---
 
-## Deploy to AWS with SAM CLI
+## Deploy to AWS
 
-### Prerequisites
-- [AWS CLI](https://aws.amazon.com/cli/) installed and configured
-- [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html) installed
-- An existing S3 bucket with the input file already uploaded
+This project is deployed using AWS SAM CLI via **AWS CloudShell** — no local setup or AWS CLI installation required. CloudShell runs directly in the AWS Console and is already authenticated.
 
-### Step 1 — Configure AWS CLI
+### Step 1 — Open CloudShell
+
+In the AWS Console, click the **CloudShell icon** (`>_`) in the top navigation bar.
+
+### Step 2 — Clone the Repository
 
 ```bash
-aws configure
+git clone https://github.com/SanikommuHarshitha/adobe-assessment.git
+cd adobe-assessment
 ```
 
-Enter your AWS Access Key ID, Secret Access Key, and region when prompted.
+### Step 3 — Create samconfig.toml
 
-### Step 2 — Create samconfig.toml
-
-`samconfig.toml` is gitignored and must be created manually in the project root. Create the file and paste the following, replacing values as needed:
+`samconfig.toml` is gitignored and must be created manually. Create the file and paste the following:
 
 ```toml
 version = 0.1
 
 [default.deploy.parameters]
 stack_name = "search-keyword-performance"
-region = "us-east-1"
+region = "us-west-1"
 confirm_changeset = true
 capabilities = "CAPABILITY_IAM"
-parameter_overrides = "BucketName=YOUR_BUCKET_NAME InputKey=source_revenue/YOUR_INPUT_FILE.sql OutputPrefix=output_revenue"
+parameter_overrides = "BucketName=YOUR_BUCKET_NAME InputKey=search_keyword_performance_raw/YOUR_INPUT_FILE.sql OutputPrefix=search_keyword_performance_processed"
 ```
 
-### Step 3 — Build and Deploy
+### Step 4 — Build and Deploy
 
 ```bash
 sam build
-sam deploy
+sam deploy --resolve-s3
 ```
 
-### Step 4 — Run
+Type `y` when prompted to confirm the deployment.
 
-Invoke the Lambda function from the AWS console or CLI. The function will read the input file from S3, process it, and write the output to:
+### Step 5 — Run
+
+Go to **AWS Console → Lambda → SearchKeywordProcessor → Test**.
+
+Pass the input file in the test event payload:
+
+```json
+{
+    "input_key": "search_keyword_performance_raw/data[36][51].sql"
+}
+```
+
+Click **Test**. The output file will be written to:
 
 ```
-s3://YOUR_BUCKET_NAME/output_revenue/YYYY-MM-DD_SearchKeywordPerformance.tab
+s3://YOUR_BUCKET_NAME/search_keyword_performance_processed/YYYY-MM-DD_SearchKeywordPerformance.tab
+```
+
+To view the output from CloudShell:
+
+```bash
+aws s3 cp s3://YOUR_BUCKET_NAME/search_keyword_performance_processed/2009-09-27_SearchKeywordPerformance.tab -
 ```
 
 ---
 
 ## Scalability (Files > 10 GB)
 
-The current implementation loads the full file into memory which will not scale beyond Lambda's limits. For files of this size:
+The current Lambda implementation loads the full file into memory which will not scale beyond Lambda's limits. There are three different approaches to address this:
 
-- **Stream line-by-line** from S3 to keep memory usage constant
-- **AWS Glue (PySpark)** for distributed processing across multiple nodes without server management
-- **SQS-based chunking** — split the file into chunks, process in parallel across multiple Glue jobs, then aggregate results
+- **Approach 1 — Stream line-by-line**: A quick fix to the current Lambda solution. Read and process one line at a time so memory usage stays constant regardless of file size. Best for files up to a few GB.
+- **Approach 2 — AWS Glue**: Migrate to AWS Glue (PySpark), a distributed processing engine built for large-scale data. `glue_job.py` contains a ready-to-use Glue implementation of the same logic. Recommended for files consistently exceeding 10 GB.
+- **Approach 3 — SQS-based chunking**: Split the file into chunks, queue via SQS, and process in parallel across multiple workers before aggregating results. An alternative to Glue but significantly more engineering effort.
