@@ -1,8 +1,0 @@
-version = 0.1
-
-[default.deploy.parameters]
-stack_name = "search-keyword-performance"
-region = "us-west-1"
-confirm_changeset = true
-capabilities = "CAPABILITY_IAM"
-parameter_overrides = "BucketName=adobe-revenue-assessment InputKey=source_revenue/data[36][51].sql OutputPrefix=output_revenue"
