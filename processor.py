@@ -26,9 +26,6 @@ class SearchKeywordProcessor:
     attributed to external search engine keywords.
     """
 
-    def __init__(self):
-        self.revenue_by_keyword = defaultdict(float)  # (domain, keyword) -> revenue
-
     def is_search_engine_referrer(self, referrer: str) -> bool:
         """
         Check if the referrer is an external search engine.
@@ -41,16 +38,14 @@ class SearchKeywordProcessor:
         try:
             parsed = urlparse(referrer)
             netloc = parsed.netloc.lower()
-            # Must be external
             if OWNED_DOMAIN in netloc:
                 return False
-            # Must have a search query param
             query_params = parse_qs(parsed.query)
             return any(param in query_params for param in SEARCH_QUERY_PARAMS)
         except Exception:
             return False
 
-    def extract_search_info(self, referrer: str) -> tuple[str, str] | tuple[None, None]:
+    def extract_search_info(self, referrer: str):
         """
         Dynamically extract the search engine domain and keyword from a referrer URL.
         Does not rely on a hardcoded list of search engines.
@@ -62,18 +57,15 @@ class SearchKeywordProcessor:
             parsed = urlparse(referrer)
             netloc = parsed.netloc.lower()
 
-            # Must be external
             if OWNED_DOMAIN in netloc:
                 return None, None
 
             query_params = parse_qs(parsed.query)
 
-            # Try each common search param in priority order
             for param in SEARCH_QUERY_PARAMS:
                 if param in query_params:
                     keyword = query_params[param][0].strip().lower()
                     if keyword:
-                        # Strip www. for a clean domain name
                         domain = netloc.replace("www.", "", 1)
                         return domain, keyword
 
@@ -100,8 +92,7 @@ class SearchKeywordProcessor:
         if not product_list:
             return 0.0
         total = 0.0
-        products = product_list.split(",")
-        for product in products:
+        for product in product_list.split(","):
             fields = product.split(";")
             if len(fields) >= 4 and fields[3].strip():
                 try:
@@ -119,21 +110,21 @@ class SearchKeywordProcessor:
         actualized when the purchase event (event 1) is present. When a purchase
         occurs, attribute revenue to that session's search referrer.
 
-        Returns a dict of (domain, keyword) -> revenue.
+        Returns a dict of (domain, keyword) -> total revenue across all dates.
         """
-        self.revenue_by_keyword = defaultdict(float)
+        revenue_by_keyword = defaultdict(float)
 
         # session_key -> (domain, keyword) of most recent search engine referrer
-        session_search: dict = {}
+        session_search = {}
 
         reader = csv.DictReader(io.StringIO(file_content), delimiter="\t")
 
         for row in reader:
-            referrer = row.get("referrer", "").strip()
-            event_list = row.get("event_list", "").strip()
+            referrer     = row.get("referrer", "").strip()
+            event_list   = row.get("event_list", "").strip()
             product_list = row.get("product_list", "").strip()
-            ip = row.get("ip", "").strip()
-            user_agent = row.get("user_agent", "").strip()
+            ip           = row.get("ip", "").strip()
+            user_agent   = row.get("user_agent", "").strip()
 
             session_key = (ip, user_agent)
 
@@ -148,34 +139,36 @@ class SearchKeywordProcessor:
                 if revenue > 0:
                     search_info = session_search.get(session_key)
                     if search_info:
-                        self.revenue_by_keyword[search_info] += revenue
+                        revenue_by_keyword[search_info] += revenue
 
-        return dict(self.revenue_by_keyword)
-
-    def generate_output(self, revenue_data: dict, date_str: str) -> tuple[str, str]:
-        """
-        Generate the output tab-delimited file content sorted by revenue descending.
-        Returns (filename, file_content).
-        """
-        filename = f"{date_str}_SearchKeywordPerformance.tab"
-
-        lines = ["Search Engine Domain\tSearch Keyword\tRevenue"]
-        sorted_data = sorted(revenue_data.items(), key=lambda x: x[1], reverse=True)
-
-        for (domain, keyword), revenue in sorted_data:
-            lines.append(f"{domain}\t{keyword}\t{revenue:.2f}")
-
-        return filename, "\n".join(lines)
+        return dict(revenue_by_keyword)
 
     def extract_date_from_content(self, file_content: str) -> str:
-        """Extract the date from the first data row's date_time column."""
+        """
+        Extract the latest date from the data to use in the output filename.
+        Uses the latest date found so the filename reflects the most recent data processed.
+        """
+        latest_date = None
         try:
             reader = csv.DictReader(io.StringIO(file_content), delimiter="\t")
             for row in reader:
                 dt_str = row.get("date_time", "").strip()
                 if dt_str:
                     dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
-                    return dt.strftime("%Y-%m-%d")
+                    if latest_date is None or dt > latest_date:
+                        latest_date = dt
         except Exception:
             pass
-        return datetime.now().strftime("%Y-%m-%d")
+        return latest_date.strftime("%Y-%m-%d") if latest_date else datetime.now().strftime("%Y-%m-%d")
+
+    def generate_output(self, revenue_data: dict, date_str: str):
+        """
+        Generate the output tab-delimited file content sorted by revenue descending.
+        Returns (filename, file_content).
+        """
+        filename = f"{date_str}_SearchKeywordPerformance.tab"
+        lines = ["Search Engine Domain\tSearch Keyword\tRevenue"]
+        sorted_data = sorted(revenue_data.items(), key=lambda x: x[1], reverse=True)
+        for (domain, keyword), revenue in sorted_data:
+            lines.append(f"{domain}\t{keyword}\t{revenue:.2f}")
+        return filename, "\n".join(lines)

@@ -13,7 +13,7 @@ Globals:
   Function:
     Timeout: 60
     MemorySize: 256
-    Runtime: python3.12
+    Runtime: python3.9
 
 Parameters:
   BucketName:
@@ -34,7 +34,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: SearchKeywordProcessor
-      CodeUri: src/
+      CodeUri: ./
       Handler: lambda_handler.lambda_handler
       Description: >
         Reads hit-level data from S3, computes search keyword revenue,

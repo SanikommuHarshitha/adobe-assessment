@@ -5,7 +5,7 @@ Usage: python main.py <path_to_data_file>
 
 import sys
 import os
-from src.processor import SearchKeywordProcessor
+from processor import SearchKeywordProcessor
 
 
 def main():
