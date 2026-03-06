@@ -1,6 +1,8 @@
 # Search Keyword Performance Processor
 
-A Python application that analyzes hit-level Adobe Analytics data to compute revenue attributed to external search engine keywords.
+A Python application that analyzes Adobe Analytics hit-level data and attributes revenue to external search engine keywords.
+
+The pipeline processes hit-level data, attributes purchases back to the originating search keyword, and generates a revenue report for marketing analysis.
 
 ## The Business Question
 
@@ -24,16 +26,46 @@ Sorted by revenue descending. The date in the filename reflects the latest date 
 
 ```
 adobe-assessment/
-├── processor.py        # Core logic (SearchKeywordProcessor class)
-├── lambda_handler.py   # AWS Lambda entry point
-├── glue_job.py         # AWS Glue job for processing files > 10 GB
-├── main.py             # CLI runner for local use
-├── template.yaml       # AWS SAM deployment template
-├── samconfig.toml      # Local deployment config (gitignored - see setup below)
+│
+├── processor.py          # Core processing logic
+├── lambda_handler.py     # AWS Lambda entry point
+├── glue_job.py           # AWS Glue job for large file processing
+├── main.py               # Local CLI runner
+│
+├── template.yaml         # AWS SAM infrastructure template
+├── samconfig.toml        # Local deployment config (gitignored)
+│
 ├── requirements.txt
 ├── .gitignore
-└── README.md
+├── README.md
+│
+└── tests/
+    └── test_processor.py # Unit tests for core processing logic
 ```
+
+---
+
+## Architecture Overview
+
+```
+S3 Input File
+      │
+      ▼
+AWS Lambda
+(SearchKeywordProcessor class)
+      │
+      ▼
+Revenue Aggregation
+      │
+      ▼
+S3 Output File
+```
+
+---
+
+## Documentation
+
+Detailed design decisions and implementation notes are documented in `documentation.pdf`.
 
 ---
 
@@ -98,6 +130,19 @@ To view the output from CloudShell:
 
 ```bash
 aws s3 cp s3://YOUR_BUCKET_NAME/search_keyword_performance_processed/2009-09-27_SearchKeywordPerformance.tab -
+```
+
+---
+
+## Unit Tests
+
+Unit tests validate the core processing logic implemented in `SearchKeywordProcessor`.
+
+Tests can be executed directly in AWS CloudShell:
+
+```bash
+pip install pytest
+pytest tests/
 ```
 
 ---
